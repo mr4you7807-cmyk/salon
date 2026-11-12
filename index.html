@@ -85,8 +85,12 @@ button,input,select{font:inherit;color:inherit}
 .drop span{font-size:34px}
 .cvwrap{position:relative;border-radius:16px;overflow:hidden;line-height:0;background:#000;touch-action:manipulation}
 .cvwrap canvas{width:100%;height:auto}
-.pin{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;
+.pin{position:absolute;width:10%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;
   border:3px solid #fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4);pointer-events:none}
+.cvwrap canvas{touch-action:none}
+.adj{display:flex;align-items:center;gap:10px;margin:4px 4px 0;font-size:13px;color:var(--mute)}
+.adj input{flex:1;accent-color:var(--accent);height:32px}
+.dot{width:48px!important;height:48px!important}
 .del{position:absolute;top:10px;right:10px;border:0;border-radius:99px;padding:9px 14px;line-height:1;
   background:rgba(30,22,16,.72);color:#fff;font-size:14px;font-weight:600;backdrop-filter:blur(6px)}
 .hint{font-size:14px;color:var(--mute);margin:10px 4px}
@@ -233,16 +237,53 @@ function lab([r, g, b]) {
 }
 DYES.forEach(d => d.lab = lab(hex2rgb(d.hex)));
 const brandName = id => (BRANDS.find(b => b.id === id) || {}).name || id;
-const cs = { tab: 'photo', brand: 'all', picked: null, pin: null };
+const cs = { tab: 'photo', brand: 'all', picked: null, pin: null, adj: 0 };
+const PIN_R = 0.05;   // 색을 읽는 원의 반지름 (사진 너비 대비)
 const inBrand = d => cs.brand === 'all' || d.brand === cs.brand;
 const title = d => d.name ? `${esc(d.code)} · ${esc(d.name)}` : esc(d.code);
 const subt = d => esc(d.line) + (d.level ? ` · ${d.level}레벨` : '');
 
-function nearest(rgb, n = 3) {
-  const L = lab(rgb);
+const KL = 0.6;   // 사진은 조명 때문에 밝기가 가장 부정확 → 밝기 차이는 덜 반영
+function nearest(rgb, n = 5) {
+  const L = lab(rgb), seen = {};
   return DYES.filter(inBrand)
-    .map(d => ({ d, e: Math.hypot(L[0] - d.lab[0], L[1] - d.lab[1], L[2] - d.lab[2]) }))
-    .sort((a, b) => a.e - b.e).slice(0, n);
+    .map(d => ({ d, e: Math.hypot(KL * (L[0] - d.lab[0]), L[1] - d.lab[1], L[2] - d.lab[2]) }))
+    .sort((a, b) => a.e - b.e)
+    .filter(x => { const k = x.d.brand + x.d.line; seen[k] = (seen[k] || 0) + 1; return seen[k] <= 2; })
+    .slice(0, n);
+}
+/* 누른 자리 주변에서 "가장 많이 차지하는 색 덩어리"만 골라 대표색을 구한다.
+   (피부·배경·옷이 원 안에 섞여도 머리카락 색만 남기고, 번쩍이는 하이라이트와 깊은 그림자는 제외) */
+function pickColor(ctx, cx, cy, R) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const x0 = Math.max(0, cx - R), y0 = Math.max(0, cy - R), x1 = Math.min(W, cx + R), y1 = Math.min(H, cy + R);
+  const w = x1 - x0, h = y1 - y0; if (w < 1 || h < 1) return null;
+  const d = ctx.getImageData(x0, y0, w, h).data, st = Math.max(1, Math.floor(R / 22)), P = [];
+  for (let j = 0; j < h; j += st) for (let i = 0; i < w; i += st) {
+    const dx = x0 + i - cx, dy = y0 + j - cy, r2 = (dx * dx + dy * dy) / (R * R); if (r2 > 1) continue;
+    const o = (j * w + i) * 4, rgb = [d[o], d[o + 1], d[o + 2]];
+    P.push({ rgb, lab: lab(rgb), w: Math.exp(-r2 * 2.5), c: 0 });
+  }
+  if (!P.length) return null;
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const mean = (ps, key) => { let s = [0, 0, 0], t = 0; for (const p of ps) { for (let k = 0; k < 3; k++) s[k] += p[key][k] * p.w; t += p.w; } return s.map(v => v / t); };
+  const core = P.filter(p => p.w > Math.exp(-0.3));
+  let C = [mean(core.length ? core : P, 'lab')];
+  for (let k = 1; k < 3; k++) { let best = P[0], bd = -1; for (const p of P) { const m = Math.min(...C.map(c => dist(c, p.lab))); if (m > bd) { bd = m; best = p; } } C.push(best.lab.slice()); }
+  for (let it = 0; it < 8; it++) {
+    for (const p of P) { let b = 0, bd = 1e9; C.forEach((c, k) => { const m = dist(c, p.lab); if (m < bd) { bd = m; b = k; } }); p.c = b; }
+    C = C.map((c, k) => { const g = P.filter(p => p.c === k); return g.length ? mean(g, 'lab') : c; });
+  }
+  const wt = C.map((_, k) => P.reduce((s, p) => s + (p.c === k ? p.w : 0), 0));
+  const main = wt.indexOf(Math.max(...wt));
+  // 같은 색인데 밝기만 다른 덩어리(머리카락의 음영)는 합친다
+  const ok = C.map((c, k) => k === main || (Math.hypot(c[1] - C[main][1], c[2] - C[main][2]) < 9 && Math.abs(c[0] - C[main][0]) < 28));
+  const G = P.filter(p => ok[p.c]).sort((a, b) => a.lab[0] - b.lab[0]);
+  const band = G.slice(Math.floor(G.length * .35), Math.max(Math.floor(G.length * .35) + 1, Math.ceil(G.length * .9)));
+  return mean(band, 'rgb').map(Math.round);
+}
+function adjust(rgb, k) {   // 밝기 보정: k = -30 ~ +30 (%)
+  return rgb.map(v => Math.max(0, Math.min(255, Math.round(k >= 0 ? v + (255 - v) * k / 100 : v * (1 + k / 100)))));
 }
 function sheet(d) {
   const el = document.createElement('div');
@@ -287,44 +328,48 @@ function color() {
 }
 function loadPhoto(file) {
   const img = new Image();
-  img.onload = () => { cs.img = img; cs.picked = cs.pin = null; drawPhoto(); };
+  img.onload = () => { cs.img = img; cs.picked = cs.pin = null; cs.adj = 0; drawPhoto(); };
   img.src = URL.createObjectURL(file);
 }
 function drawPhoto() {
   const img = cs.img, w = Math.min(img.naturalWidth || img.width, 1000);
   $('#stage').innerHTML = `<div class="cvwrap"><canvas id="cv"></canvas><div class="pin" hidden></div>
       <button class="del" id="again" aria-label="사진 지우기">✕ 사진 지우기</button></div>
-    <p class="hint">👆 사진에서 원하는 머리 색 부분을 눌러주세요</p>`;
+    <p class="hint">👆 머리카락이 넓게 보이는 밝은 부분을 누르거나 문질러 주세요</p>`;
   const c = $('#cv'), ctx = c.getContext('2d', { willReadFrequently: true });
   c.width = w; c.height = Math.round((img.naturalHeight || img.height) * w / (img.naturalWidth || img.width));
   ctx.drawImage(img, 0, 0, c.width, c.height);
   $('#again').onclick = () => { cs.img = cs.picked = cs.pin = null; color(); };
-  c.onpointerdown = e => {
+  const pick = e => {
     const r = c.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
-    const R = Math.max(5, Math.round(c.width * .022));
-    const x0 = Math.max(0, Math.round(px * c.width) - R), y0 = Math.max(0, Math.round(py * c.height) - R);
-    const d = ctx.getImageData(x0, y0, Math.min(2 * R, c.width - x0), Math.min(2 * R, c.height - y0)).data;
-    let s = [0, 0, 0], n = 0;
-    for (let i = 0; i < d.length; i += 4) { s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++; }
-    cs.picked = s.map(v => Math.round(v / n)); cs.pin = [px, py];
+    const px = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), py = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    const rgb = pickColor(ctx, Math.round(px * c.width), Math.round(py * c.height), Math.max(6, Math.round(c.width * PIN_R)));
+    if (!rgb) return;
+    cs.picked = rgb; cs.pin = [px, py];
     showMatch();
   };
+  let down = false;
+  c.onpointerdown = e => { down = true; c.setPointerCapture && e.pointerId != null && c.setPointerCapture(e.pointerId); pick(e); };
+  c.onpointermove = e => { if (down) pick(e); };
+  c.onpointerup = c.onpointercancel = () => { down = false; };
   showMatch();
 }
 function showMatch() {
   const pin = $('.pin'), res = $('#res');
   if (!cs.picked || !pin) { if (res) res.innerHTML = ''; return; }
   pin.hidden = false; pin.style.left = cs.pin[0] * 100 + '%'; pin.style.top = cs.pin[1] * 100 + '%';
-  pin.style.background = `rgb(${cs.picked})`;
-  const m = nearest(cs.picked);
-  res.innerHTML = `<div class="picked"><span class="dot" style="background:rgb(${cs.picked})"></span>선택한 색과 가까운 염모제</div>
+  const col = adjust(cs.picked, cs.adj);
+  const m = nearest(col);
+  res.innerHTML = `<div class="picked"><span class="dot" style="background:rgb(${col})"></span>앱이 읽은 머리 색 · 가까운 염모제</div>
+    <div class="adj"><span>어둡게</span><input id="adj" type="range" min="-30" max="30" step="5" value="${cs.adj}" aria-label="밝기 보정"><span>밝게</span></div>
+    <p class="hint">위 동그라미 색이 실제 머리 색과 다르면 다른 부분을 누르거나 밝기를 맞춰주세요.</p>
     <div class="card">${m.map((x, i) => `<button class="match" data-i="${i}">
       <span class="sw" style="background:${x.d.hex}"></span>
       <span><b>${title(x.d)}</b><small>${esc(brandName(x.d.brand))} · ${subt(x.d)}</small></span>
-      <span class="pct">${Math.max(0, Math.round(100 - x.e))}%</span></button>`).join('')}</div>
+      <span class="pct">${Math.max(0, Math.round(100 - x.e * 1.5))}%</span></button>`).join('')}</div>
     <p class="note">사진의 조명·보정에 따라 실제 색과 차이가 날 수 있어요. 디자이너와 함께 확인해 주세요.</p>`;
   res.querySelectorAll('.match').forEach(b => b.onclick = () => sheet(m[b.dataset.i].d));
+  $('#adj').onchange = e => { cs.adj = +e.target.value; showMatch(); };
 }
 
 /* ---------- 라우터 ---------- */
