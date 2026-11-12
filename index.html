@@ -107,6 +107,18 @@ button,input,select{font:inherit;color:inherit}
 .cell{border:0;background:none;padding:0;display:grid;gap:4px;justify-items:center;font-size:10px;min-width:0;overflow-wrap:anywhere;line-height:1.2;align-content:start;font-weight:600;color:var(--mute)}
 .cell i{display:block;width:100%;aspect-ratio:1;border-radius:10px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 
+.mx{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);-webkit-overflow-scrolling:touch}
+.mt{border-collapse:separate;border-spacing:0}
+.mt th,.mt td{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.mt td{padding:4px 3px;vertical-align:top;min-width:58px}
+.mt .th{padding:7px 4px;font-size:10.5px;font-weight:700;line-height:1.25;min-width:58px;word-break:keep-all}
+.mt .lv{position:sticky;left:0;z-index:1;background:#6f665e;color:#fff;font-size:12px;font-weight:700;min-width:28px;padding:0 6px}
+.mt .lv.top{position:static;padding:6px 0;min-width:58px}
+.mt.tr .th{position:sticky;left:0;z-index:1;min-width:70px;max-width:70px}
+.mt .cell{width:52px;margin:0 auto}
+.cell span{display:block}
+.cell i{background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.13) 0 1px,rgba(0,0,0,.07) 1px 2px,rgba(255,255,255,0) 2px 4px,rgba(0,0,0,.04) 4px 5px)}
+.mt .cell i{border-radius:4px;aspect-ratio:1/1.05}
 /* 상세 시트 */
 .scrim{position:fixed;inset:0;background:rgba(30,22,16,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--bg);width:100%;max-width:520px;border-radius:22px 22px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));
@@ -285,6 +297,28 @@ function pickColor(ctx, cx, cy, R) {
 function adjust(rgb, k) {   // 밝기 보정: k = -30 ~ +30 (%)
   return rgb.map(v => Math.max(0, Math.min(255, Math.round(k >= 0 ? v + (255 - v) * k / 100 : v * (1 + k / 100)))));
 }
+/* 원본 차트처럼: 가로 = 색상 계열, 세로 = 레벨 (미엘은 원본대로 가로 = 레벨, 세로 = 계열) */
+const cellBtn = x => `<button class="cell" data-i="${x.i}"><span>${esc(x.d.code)}</span><i style="background-color:${x.d.hex}"></i></button>`;
+const ink = hex => { const [r, g, b] = hex2rgb(hex); return .299 * r + .587 * g + .114 * b > 165 ? '#2a2420' : '#fff'; };
+function lineChart(items, brand) {
+  const flat = its => its.length ? `<div class="chart">${its.map(cellBtn).join('')}</div>` : '';
+  const isG = x => x.d.level != null && x.d.name;
+  const g = items.filter(isG), rest = items.filter(x => !isG(x));
+  if (brand === 'loreal' || g.length < 4) return flat(items);
+  const byLv = {}; g.forEach(x => (byLv[x.d.level] = byLv[x.d.level] || []).push(x.d.name));
+  const full = Object.values(byLv).sort((p, q) => q.length - p.length)[0];   // 칸이 가장 많이 찬 줄의 순서 = 원본 열 순서
+  const tones = [...new Set([...full, ...g.map(x => x.d.name)])];
+  const head = t => { const c = g.filter(x => x.d.name === t); const hx = c[c.length >> 1].d.hex;
+    return `<th class="th" style="background:${hx};color:${ink(hx)}">${esc(t)}</th>`; };
+  const at = (t, l) => g.filter(x => x.d.name === t && x.d.level === l).map(cellBtn).join('');
+  const lv = [...new Set(g.map(x => x.d.level))].sort((p, q) => q - p);
+  const table = brand === 'mielle'
+    ? `<tr><th class="lv"></th>${lv.slice().reverse().map(l => `<th class="lv top">${l}</th>`).join('')}</tr>` +
+      tones.map(t => `<tr>${head(t)}${lv.slice().reverse().map(l => `<td>${at(t, l)}</td>`).join('')}</tr>`).join('')
+    : `<tr><th class="lv"></th>${tones.map(head).join('')}</tr>` +
+      lv.map(l => `<tr><th class="lv">${l}</th>${tones.map(t => `<td>${at(t, l)}</td>`).join('')}</tr>`).join('');
+  return `<div class="mx"><table class="mt${brand === 'mielle' ? ' tr' : ''}">${table}</table></div>${rest.length ? '<div style="height:10px"></div>' + flat(rest) : ''}`;
+}
 function sheet(d) {
   const el = document.createElement('div');
   el.className = 'scrim';
@@ -309,9 +343,9 @@ function color() {
     </div>
     <div id="res"></div>`;
   const lines = [...new Set(list.map(d => d.brand + '|' + d.line))];
-  const chart = lines.map(k => { const [b, ln] = k.split('|'); return `<div class="cat">${cs.brand === 'all' ? esc(brandName(b)) + ' · ' : ''}${esc(ln)}</div>
-    <div class="chart">${list.map((d, i) => d.brand === b && d.line === ln ?
-      `<button class="cell" data-i="${i}"><i style="background:${d.hex}"></i>${esc(d.code)}</button>` : '').join('')}</div>`; }).join('');
+  const chart = lines.map(k => { const [b, ln] = k.split('|');
+    const items = list.map((d, i) => ({ d, i })).filter(x => x.d.brand === b && x.d.line === ln);
+    return `<div class="cat">${cs.brand === 'all' ? esc(brandName(b)) + ' · ' : ''}${esc(ln)}</div>${lineChart(items, b)}`; }).join('');
   app.innerHTML = shell('컬러진단기', `
     <div class="tabs"><button data-t="photo" class="${cs.tab === 'photo' ? 'on' : ''}">사진으로 찾기</button>
       <button data-t="chart" class="${cs.tab === 'chart' ? 'on' : ''}">차트에서 선택</button></div>
