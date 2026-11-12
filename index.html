@@ -46,7 +46,7 @@ button,input,select{font:inherit;color:inherit}
 .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:14px 16px}
 .row+.row{border-top:1px solid var(--line)}
 .row b{font-weight:600;font-size:16px}
-.row small{color:var(--mute);font-size:13px}
+.row small{color:var(--mute);font-size:13px;white-space:nowrap}
 .price{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 .note{color:var(--mute);font-size:13px;line-height:1.6;margin:16px 4px 0}
 
@@ -122,6 +122,24 @@ button,input,select{font:inherit;color:inherit}
 .cell span{display:block}
 .cell i{background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.13) 0 1px,rgba(0,0,0,.07) 1px 2px,rgba(255,255,255,0) 2px 4px,rgba(0,0,0,.04) 4px 5px)}
 .mt .cell i{border-radius:4px;aspect-ratio:1/1.05}
+/* 펌진단기 */
+.pcard{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 14px 10px 10px;margin-bottom:10px}
+.pcard .thumb{width:84px;flex:none;background:#faf5ef;border-radius:12px;overflow:hidden;line-height:0}
+.pcard .thumb text,.pcard .thumb path[fill=none]{display:none}
+.pcard b{display:block;font-size:16px}
+.pcard small{display:block;color:var(--mute);font-size:13px;line-height:1.45;margin:3px 0 5px}
+.pcard em{font-style:normal;font-size:12px;color:var(--accent);font-weight:600}
+.pad{padding:10px}
+.dg{width:100%;height:auto;display:block}
+.dg .st{font-size:13px;font-weight:700;fill:#2a2420}
+.dg .sm{font-size:11.5px;fill:#857a70}
+.cap{font-size:12px;color:var(--mute);margin:6px 6px 2px;line-height:1.5}
+.zrow{display:flex;gap:14px;padding:12px 16px;align-items:baseline}
+.zrow+.zrow{border-top:1px solid var(--line)}
+.zrow b{width:52px;flex:none;color:var(--accent)}
+.zrow strong{font-variant-numeric:tabular-nums}
+.zrow small{display:block;color:var(--mute);font-size:13px;margin-top:2px}
+.tips{margin:10px 4px 0;padding-left:20px;color:var(--mute);font-size:14px;line-height:1.7}
 /* 상세 시트 */
 .scrim{position:fixed;inset:0;background:rgba(30,22,16,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--bg);width:100%;max-width:520px;border-radius:22px 22px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));
@@ -140,6 +158,7 @@ button,input,select{font:inherit;color:inherit}
 <div id="app"></div>
 <script src="data.js"></script>
 <script src="charts.js"></script>
+<script src="perm.js"></script>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const app = $('#app');
@@ -151,6 +170,7 @@ const APPS = [
   { id:'price', name:'요금표',       icon:'📋', bg:'linear-gradient(140deg,#c9b8a6,#8d7762)' },
   { id:'calc',  name:'염모제 계산기', icon:'🧪', bg:'linear-gradient(140deg,#9db7d8,#55739f)' },
   { id:'color', name:'컬러진단기',   icon:'🎨', bg:'linear-gradient(140deg,#e3a79b,#a8574a)' },
+  { id:'perm',  name:'펌진단기',     icon:'🌀', bg:'linear-gradient(140deg,#b9a6d6,#7a5fa8)' },
 ];
 
 const shell = (title, body) =>
@@ -440,6 +460,87 @@ function showMatch() {
   if ($('#wb')) $('#wb').onchange = e => { cs.wb = e.target.checked; showMatch(); };
 }
 
+/* ---------- 펌진단기 ---------- */
+const ZN = { top: '탑', crown: '크라운', side: '사이드', back: '백', nape: '네이프' };
+const SCALP = { top: [130, 38], crown: [176, 60], back: [192, 108], nape: [180, 158] };
+const ps = { len: '전체' };
+function headSVG() {
+  return `<rect x="116" y="170" width="40" height="52" rx="10" fill="#efd6c4"/>
+    <ellipse cx="130" cy="110" rx="62" ry="72" fill="#f5e1d2" stroke="#cdb3a0" stroke-width="1.5"/>
+    <path d="M70 108 l-11 16 l12 5" fill="#f5e1d2" stroke="#cdb3a0" stroke-width="1.5" stroke-linejoin="round"/>
+    <ellipse cx="128" cy="122" rx="7" ry="11" fill="#ecd0bd" stroke="#cdb3a0"/>`;
+}
+function hairPath(s) {
+  const Y = s.lenY, f = s.cut.form;
+  const bottom = f === 'grad' ? `L206 ${Y - 22} L98 ${Y + 6}` : f === 'layer' ? `L202 ${Y - 6} Q150 ${Y + 10} 104 ${Y - 12}` : `L206 ${Y} L98 ${Y}`;
+  return `M74 96 Q78 36 130 32 Q196 34 206 104 ${bottom} L92 128 Q84 110 74 96 Z`;
+}
+function cutSVG(s) {
+  const a = s.cut.angles; let g = '';
+  if (a) for (const z of ['top', 'crown', 'back', 'nape']) {
+    const [x, y] = SCALP[z], t = a[z] * Math.PI / 180;
+    const len = a[z] === 0 ? Math.max(30, s.lenY - y) : Math.min(120, Math.max(46, (s.lenY - y) * .62));
+    const x2 = x + Math.sin(t) * len, y2 = y + Math.cos(t) * len;
+    const lx = x2 + (a[z] === 0 ? 14 : Math.sin(t) * 14 + 4), ly = y2 + (a[z] === 0 ? -4 : Math.cos(t) * 12 + 4);
+    g += `<line x1="${x}" y1="${y}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#8c4a3c" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="${x}" cy="${y}" r="3.5" fill="#8c4a3c"/>
+      <text x="${Math.min(278, lx).toFixed(0)}" y="${Math.max(14, ly).toFixed(0)}" class="st">${ZN[z]} ${a[z]}°</text>`;
+  }
+  return `<svg viewBox="0 0 360 ${Math.max(250, s.lenY + 34)}" class="dg" role="img" aria-label="커트 도해도">
+    <path d="${hairPath(s)}" fill="#c9a892" opacity=".45" stroke="#a88672" stroke-width="1.5" stroke-linejoin="round"/>
+    ${headSVG()}
+    <line x1="60" y1="${s.lenY}" x2="240" y2="${s.lenY}" stroke="#857a70" stroke-dasharray="4 4"/>
+    <text x="244" y="${s.lenY + 4}" class="sm">가이드 길이</text>${g}</svg>`;
+}
+function rodSVG(s) {
+  const Y = s.lenY, ends = s.perm.at === 'ends';
+  const P = ends
+    ? { top: [[118, Y - 52], [146, Y - 52]], crown: [[172, Y - 40], [196, Y - 36]], side: [[98, Y - 14], [124, Y - 14]], back: [[152, Y - 14], [178, Y - 14], [204, Y - 14]], nape: [[168, Y + 10], [194, Y + 10]] }
+    : { top: [[104, 44], [128, 36], [152, 42]], crown: [[174, 58], [188, 78]], side: [[146, 96], [146, 118], [146, 140]], back: [[196, 104], [196, 128]], nape: [[186, 152], [174, 170]] };
+  const col = mm => `hsl(${275 - (mm - 10) * 9},42%,${52 + (mm - 10) * .8}%)`;
+  let g = ''; const H = Math.max(250, Y + 44);
+  s.perm.zones.forEach((zn, i) => {
+    const mm = (zn.mm[0] + zn.mm[1]) / 2, r = Math.max(5, mm * .36), pts = P[zn.z];
+    pts.forEach(([x, y]) => g += `<circle cx="${x}" cy="${y}" r="${r.toFixed(1)}" fill="${col(mm)}" stroke="#fff" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="${(r * .35).toFixed(1)}" fill="#fff" opacity=".55"/>`);
+    const left = zn.z === 'side', [px, py] = left ? pts[0] : pts[pts.length - 1];
+    const ty = left ? H - 8 : 26 + i * ((H - 60) / 4.2), tx = left ? 14 : 262;
+    g += `<path d="M${px} ${py} L${left ? 44 : 256} ${ty - 4}" stroke="#857a70" stroke-width="1" fill="none" opacity=".7"/>
+      <text x="${tx}" y="${ty}" class="st">${ZN[zn.z]}</text><text x="${tx + (left ? 44 : 0)}" y="${ty + (left ? 0 : 14)}" class="sm">${zn.mm[0]}~${zn.mm[1]}mm</text>`;
+  });
+  return `<svg viewBox="0 0 360 ${H}" class="dg" role="img" aria-label="롯드 배치도">
+    <path d="${hairPath(s)}" fill="#c9a892" opacity=".3" stroke="#a88672" stroke-width="1.2" stroke-linejoin="round"/>
+    ${headSVG()}${g}</svg>`;
+}
+function perm(params) {
+  const s = PERM_STYLES.find(x => x.id === params.get('s'));
+  if (!s) {
+    const lens = ['전체', ...new Set(PERM_STYLES.map(x => x.len))];
+    const list = PERM_STYLES.filter(x => ps.len === '전체' || x.len === ps.len);
+    app.innerHTML = shell('펌진단기', `
+      <p class="hint" style="margin-top:0">원하는 스타일을 고르면 커트 도해도와 롯드 넣는 방법을 보여드려요.</p>
+      <div class="chips">${lens.map(l => `<button class="chip ${l === ps.len ? 'on' : ''}" data-l="${esc(l)}">${esc(l)}</button>`).join('')}</div>
+      ${list.map(x => `<a class="pcard" href="#perm?s=${x.id}"><span class="thumb">${rodSVG(x)}</span>
+        <span><b>${esc(x.name)}</b><small>${esc(x.desc)}</small><em>${esc(x.cut.formName)} · ${esc(x.perm.type)}</em></span></a>`).join('')}
+      <p class="note">${esc(PERM_NOTE)}</p>`);
+    app.querySelectorAll('.chip').forEach(b => b.onclick = () => { ps.len = b.dataset.l; perm(params); });
+    return;
+  }
+  const row = (k, v) => `<div class="row"><small>${k}</small><b style="text-align:right;font-size:15px">${esc(v)}</b></div>`;
+  const tips = t => t && t.length ? `<ul class="tips">${t.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  app.innerHTML = `<header class="bar"><a class="back" href="#perm">‹ 목록</a><h1>${esc(s.name)}</h1><span></span></header><main class="page">
+    <p class="hint" style="margin-top:0">${esc(s.desc)}</p>
+    <div class="cat">커트 도해도</div>
+    <div class="card pad">${cutSVG(s)}${s.cut.angles ? '<p class="cap">선 = 구역별로 모발을 들어 올리는 각도 (0° 자연 낙하 · 90° 수평 · 180° 위로)</p>' : ''}</div>
+    <div class="card" style="margin-top:10px">${row('형태', s.cut.formName)}${row('가이드 길이', s.cut.guide)}${row('섹션', s.cut.section)}</div>
+    ${tips(s.cut.tips)}
+    <div class="cat">펌 롯드 넣는 방법</div>
+    <div class="card pad">${rodSVG(s)}<p class="cap">${s.perm.at === 'ends' ? '모발 끝에서 말아 올리는 위치 · 원 크기 = 롯드 굵기' : '두피 가까이 마는 위치 · 원 크기 = 롯드 굵기'}</p></div>
+    <div class="card" style="margin-top:10px">${row('펌 종류', s.perm.type)}</div>
+    <div class="card" style="margin-top:10px">${s.perm.zones.map(z => `<div class="zrow"><b>${ZN[z.z]}</b><span><strong>${z.mm[0]}~${z.mm[1]}mm</strong> · ${esc(z.turns)}<small>${esc(z.wind)}</small></span></div>`).join('')}</div>
+    ${tips(s.perm.tips)}
+    <p class="note">${esc(PERM_NOTE)}</p></main>`;
+}
+
 /* ---------- 라우터 ---------- */
 function route() {
   document.querySelectorAll('.scrim').forEach(e => e.remove());
@@ -448,7 +549,7 @@ function route() {
   document.title = SALON.name;
   ({ tea: () => list('티메뉴', TEA),
      price: () => list('요금표', PRICES, PRICES_NOTE),
-     member, calc: () => calc(params), color }[id] || home)();
+     member, calc: () => calc(params), color, perm: () => perm(params) }[id] || home)();
   scrollTo(0, 0);
 }
 addEventListener('hashchange', route);
